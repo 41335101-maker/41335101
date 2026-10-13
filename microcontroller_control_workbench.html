@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微控制器開發與模擬工作臺 | MCU Studio</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for Serial Plotter -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            900: '#0c4a6e',
+                        },
+                        mcu: {
+                            bg: '#0f172a',
+                            card: '#1e293b',
+                            border: '#334155',
+                            accent: '#10b981',
+                            pin: '#f59e0b'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['"Fira Code"', 'monospace'],
+                        sans: ['Inter', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbars and styling */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .glow-active { box-shadow: 0 0 15px rgba(16, 185, 129, 0.4); }
+        .glow-led { box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+    </style>
+</head>
+<body class="bg-mcu-bg text-slate-100 font-sans h-full flex flex-col overflow-hidden">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-slate-900 border-b border-mcu-border px-6 py-3 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30">
+                <i data-lucide="cpu" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+                    微控制器 Studio <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-400 font-normal">v2.5 Interactive</span>
+                </h1>
+                <p class="text-xs text-slate-400">微控制器控制程式生成、硬體模擬與邏輯除錯器</p>
+            </div>
+        </div>
+
+        <!-- Board Selection & Preset Controls -->
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-mcu-border">
+                <i data-lucide="circuit-board" class="w-4 h-4 text-slate-400 ml-1"></i>
+                <label class="text-xs text-slate-400 font-medium">目標主板:</label>
+                <select id="boardSelect" class="bg-slate-900 border border-slate-700 rounded text-xs px-2.5 py-1 text-slate-200 focus:outline-none focus:border-brand-500 font-mono">
+                    <option value="esp32">ESP32 DevKit v1 (Wi-Fi/BT)</option>
+                    <option value="uno">Arduino Uno R3 (ATmega328P)</option>
+                    <option value="pico">Raspberry Pi Pico (RP2040)</option>
+                </select>
+            </div>
+
+            <div class="flex items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-mcu-border">
+                <i data-lucide="sparkles" class="w-4 h-4 text-amber-400 ml-1"></i>
+                <label class="text-xs text-slate-400 font-medium">預設範例:</label>
+                <select id="presetSelect" class="bg-slate-900 border border-slate-700 rounded text-xs px-2.5 py-1 text-slate-200 focus:outline-none focus:border-brand-500">
+                    <option value="custom">自訂硬體配置</option>
+                    <option value="smarthome" selected>智慧溫控與繼電器 (DHT22 + Relay + OLED)</option>
+                    <option value="radar">超聲波倒車雷達 (HC-SR04 + Buzzer + LED)</option>
+                    <option value="servo">電位器精準伺服馬達控制 (Pot + Servo)</option>
+                    <option value="timer">非阻塞多任務 LED 閃爍 (Millis Machine)</option>
+                </select>
+            </div>
+
+            <button id="downloadCodeBtn" class="flex items-center gap-2 px-3.5 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-semibold transition">
+                <i data-lucide="download" class="w-4 h-4"></i> 下載 .ino 檔
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Area Grid -->
+    <div class="flex-1 grid grid-cols-12 overflow-hidden">
+        
+        <!-- Left Panel: Hardware Wiring & Component Configurator -->
+        <div class="col-span-12 lg:col-span-4 border-r border-mcu-border bg-slate-900/60 flex flex-col h-full overflow-hidden">
+            
+            <!-- Tab Headers -->
+            <div class="flex border-b border-mcu-border bg-slate-900">
+                <button id="tabWiringBtn" class="flex-1 py-2.5 text-xs font-semibold text-brand-400 border-b-2 border-brand-500 flex items-center justify-center gap-1.5">
+                    <i data-lucide="sliders" class="w-3.5 h-3.5"></i> 硬體模組與針腳配置
+                </button>
+                <button id="tabSimBtn" class="flex-1 py-2.5 text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5">
+                    <i data-lucide="gamepad-2" class="w-3.5 h-3.5"></i> 實時控制模擬器
+                </button>
+            </div>
+
+            <!-- Panel Content Container -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+                <!-- Tab 1: Hardware Setup -->
+                <div id="tabWiringContent" class="space-y-4">
+                    <div class="bg-slate-800/80 p-3 rounded-xl border border-mcu-border">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                                <i data-lucide="cpu" class="w-4 h-4 text-emerald-400"></i> 板卡架構資訊
+                            </span>
+                            <span id="boardPinBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">ESP32 (3.3V Logic)</span>
+                        </div>
+                        <p id="boardDesc" class="text-xs text-slate-400 leading-relaxed">雙核 240MHz 處理器，內建 Wi-Fi / 藍牙，具備豐富 ADC / PWM 與 I2C 針腳。</p>
+                    </div>
+
+                    <!-- Component Checkboxes and Pin Assignments -->
+                    <div class="space-y-2.5">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 px-1">外圍周邊模組 (Peripheral Modules)</h3>
+
+                        <!-- Module: LED Indicator -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modLed" checked class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modLed" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="lightbulb" class="w-3.5 h-3.5 text-amber-400"></i> 指示 LED (Digital / PWM)
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">可作開關或 PWM 調光控制</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] text-slate-400 font-mono">PIN:</span>
+                                <input type="number" id="pinLed" value="2" class="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-center font-mono text-emerald-400">
+                            </div>
+                        </div>
+
+                        <!-- Module: DHT22 Temp Sensor -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modDht" checked class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modDht" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="thermometer" class="w-3.5 h-3.5 text-rose-400"></i> DHT22 溫濕度感測器
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">單匯流排溫濕度讀取</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] text-slate-400 font-mono">DATA:</span>
+                                <input type="number" id="pinDht" value="4" class="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-center font-mono text-emerald-400">
+                            </div>
+                        </div>
+
+                        <!-- Module: Relay Module -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modRelay" checked class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modRelay" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="toggle-left" class="w-3.5 h-3.5 text-indigo-400"></i> 繼電器模組 (Relay)
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">控制高壓或大電流負載開關</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] text-slate-400 font-mono">IN:</span>
+                                <input type="number" id="pinRelay" value="16" class="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-center font-mono text-emerald-400">
+                            </div>
+                        </div>
+
+                        <!-- Module: OLED Display -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modOled" checked class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modOled" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="monitor" class="w-3.5 h-3.5 text-cyan-400"></i> OLED 顯示屏 (SSD1306)
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">128x64 I2C 通訊 (SDA/SCL)</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                                <span>SDA:<strong class="text-emerald-400" id="pinSdaLabel">21</strong></span>
+                                <span>SCL:<strong class="text-emerald-400" id="pinSclLabel">22</strong></span>
+                            </div>
+                        </div>
+
+                        <!-- Module: Ultrasonic HC-SR04 -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modSonic" class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modSonic" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="radar" class="w-3.5 h-3.5 text-sky-400"></i> 超聲波測距 (HC-SR04)
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">Trig / Echo 聲波時間測距</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] text-slate-400 font-mono">T:</span>
+                                <input type="number" id="pinTrig" value="5" class="w-10 bg-slate-900 border border-slate-700 rounded px-1 text-xs text-center font-mono text-emerald-400">
+                                <span class="text-[10px] text-slate-400 font-mono">E:</span>
+                                <input type="number" id="pinEcho" value="18" class="w-10 bg-slate-900 border border-slate-700 rounded px-1 text-xs text-center font-mono text-emerald-400">
+                            </div>
+                        </div>
+
+                        <!-- Module: Buzzer -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modBuzzer" class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modBuzzer" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="volume-2" class="w-3.5 h-3.5 text-yellow-400"></i> 無源蜂鳴器 (Buzzer)
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">PWM 頻率發聲警報</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] text-slate-400 font-mono">PWM:</span>
+                                <input type="number" id="pinBuzzer" value="19" class="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-center font-mono text-emerald-400">
+                            </div>
+                        </div>
+
+                        <!-- Module: Potentiometer -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modPot" class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modPot" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="disc" class="w-3.5 h-3.5 text-orange-400"></i> 旋鈕電位器 (Potentiometer)
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">ADC 類比電壓輸入</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] text-slate-400 font-mono">ADC:</span>
+                                <input type="number" id="pinPot" value="34" class="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-center font-mono text-emerald-400">
+                            </div>
+                        </div>
+
+                        <!-- Module: Servo Motor -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="modServo" class="w-4 h-4 rounded text-brand-500 bg-slate-900 border-slate-700 focus:ring-0">
+                                <div>
+                                    <label for="modServo" class="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                        <i data-lucide="rotate-cw" class="w-3.5 h-3.5 text-purple-400"></i> SG90 伺服馬達 (Servo)
+                                    </label>
+                                    <p class="text-[10px] text-slate-400">0 - 180 度角度控制</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] text-slate-400 font-mono">PWM:</span>
+                                <input type="number" id="pinServo" value="13" class="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-center font-mono text-emerald-400">
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Tab 2: Interactive Simulator Sandbox -->
+                <div id="tabSimContent" class="hidden space-y-4">
+                    <div class="bg-slate-800/80 p-3 rounded-xl border border-mcu-border">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> 模擬器運行狀態: 在線
+                            </span>
+                            <button id="resetSimBtn" class="text-[10px] text-slate-400 hover:text-slate-200 flex items-center gap-1">
+                                <i data-lucide="refresh-cw" class="w-3 h-3"></i> 重置模擬
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Sensor Simulation Controls -->
+                    <div class="space-y-3">
+                        
+                        <!-- DHT Temp Slider -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                                    <i data-lucide="thermometer" class="w-3.5 h-3.5 text-rose-400"></i> 模擬環境溫度 (DHT22)
+                                </span>
+                                <span id="simTempVal" class="text-xs font-mono font-bold text-rose-400">28.5 °C</span>
+                            </div>
+                            <input type="range" id="sliderTemp" min="0" max="50" step="0.5" value="28.5" class="w-full accent-rose-500 cursor-pointer">
+                        </div>
+
+                        <!-- Distance Slider -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                                    <i data-lucide="radar" class="w-3.5 h-3.5 text-sky-400"></i> 模擬超聲波距離 (HC-SR04)
+                                </span>
+                                <span id="simDistVal" class="text-xs font-mono font-bold text-sky-400">45 cm</span>
+                            </div>
+                            <input type="range" id="sliderDist" min="2" max="200" step="1" value="45" class="w-full accent-sky-500 cursor-pointer">
+                        </div>
+
+                        <!-- Potentiometer Slider -->
+                        <div class="p-3 bg-mcu-card rounded-lg border border-mcu-border space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                                    <i data-lucide="disc" class="w-3.5 h-3.5 text-orange-400"></i> 模擬電位器輸入 (Pot)
+                                </span>
+                                <span id="simPotVal" class="text-xs font-mono font-bold text-orange-400">2048 (1.65V)</span>
+                            </div>
+                            <input type="range" id="sliderPot" min="0" max="4095" step="1" value="2048" class="w-full accent-orange-500 cursor-pointer">
+                        </div>
+
+                        <!-- Visual Outputs (LED, Relay, Servo Visuals) -->
+                        <div class="pt-2 border-t border-mcu-border space-y-3">
+                            <h4 class="text-xs font-semibold text-slate-400">即時驅動狀態視覺化</h4>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <!-- LED Visual -->
+                                <div id="ledVisualCard" class="p-3 bg-slate-900 rounded-lg border border-mcu-border flex items-center gap-3">
+                                    <div id="ledBulb" class="w-7 h-7 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center transition-all duration-300">
+                                        <i data-lucide="lightbulb" class="w-4 h-4 text-slate-400"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-300">LED 燈狀態</div>
+                                        <div id="ledStateText" class="text-[10px] text-slate-500 font-mono">OFF (0)</div>
+                                    </div>
+                                </div>
+
+                                <!-- Relay Visual -->
+                                <div id="relayVisualCard" class="p-3 bg-slate-900 rounded-lg border border-mcu-border flex items-center gap-3">
+                                    <div id="relaySwitch" class="w-7 h-7 rounded-md bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 transition-colors">
+                                        <i data-lucide="power" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-300">繼電器開關</div>
+                                        <div id="relayStateText" class="text-[10px] text-slate-500 font-mono">DISCONNECTED</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Servo Angle Arc Visualizer -->
+                            <div class="p-3 bg-slate-900 rounded-lg border border-mcu-border flex items-center justify-between">
+                                <div>
+                                    <div class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                                        <i data-lucide="rotate-cw" class="w-3.5 h-3.5 text-purple-400"></i> Servo 馬達角度
+                                    </div>
+                                    <div id="servoAngleLabel" class="text-xs font-mono text-purple-400 mt-1 font-bold">90°</div>
+                                </div>
+                                <div class="relative w-16 h-10 flex items-end justify-center">
+                                    <div class="w-12 h-12 rounded-t-full border-4 border-slate-700 border-b-0"></div>
+                                    <div id="servoNeedle" class="absolute bottom-0 w-1 h-10 bg-purple-500 rounded origin-bottom transform transition-transform duration-200" style="transform: rotate(0deg);"></div>
+                                </div>
+                            </div>
+
+                            <!-- OLED Display Canvas Visualizer -->
+                            <div class="p-3 bg-slate-900 rounded-lg border border-mcu-border space-y-1.5">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-xs font-bold text-cyan-400 flex items-center gap-1">
+                                        <i data-lucide="monitor" class="w-3.5 h-3.5"></i> 0.96" OLED 螢幕模擬
+                                    </span>
+                                    <span class="text-[10px] text-slate-500 font-mono">128x64 px</span>
+                                </div>
+                                <div class="bg-black p-2 rounded border border-cyan-500/30 flex justify-center items-center shadow-inner">
+                                    <canvas id="oledCanvas" width="128" height="64" class="w-full max-w-[200px] h-[100px] bg-black border border-slate-800 rounded"></canvas>
+                                </div>
+                            </div>
+
+                            <!-- Buzzer Sound Generator Toggle -->
+                            <div class="p-3 bg-slate-900 rounded-lg border border-mcu-border flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="volume-2" class="w-4 h-4 text-yellow-400"></i>
+                                    <div>
+                                        <div class="text-xs font-semibold text-slate-200">蜂鳴器聲響</div>
+                                        <div class="text-[10px] text-slate-400">使用 Web Audio 發出警報音</div>
+                                    </div>
+                                </div>
+                                <button id="toggleAudioBtn" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 rounded border border-amber-500/30">
+                                    開啟音效
+                                </button>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Right Panel: Microcontroller C++ Code Studio & Serial Plotter -->
+        <div class="col-span-12 lg:col-span-8 flex flex-col h-full bg-mcu-bg">
+            
+            <!-- Code Header & Action Toolbar -->
+            <div class="bg-slate-900 border-b border-mcu-border px-4 py-2 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-mono font-bold text-emerald-400 flex items-center gap-1.5">
+                        <i data-lucide="code-2" class="w-4 h-4"></i> main.cpp / firmware.ino
+                    </span>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono border border-slate-700">C++ / Arduino IDE</span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button id="copyCodeBtn" class="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs border border-mcu-border transition">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> 複製程式碼
+                    </button>
+                    <button id="toggleSerialBtn" class="flex items-center gap-1.5 px-3 py-1 bg-brand-900/40 text-brand-300 border border-brand-500/40 hover:bg-brand-800/50 rounded text-xs transition">
+                        <i data-lucide="terminal" class="w-3.5 h-3.5"></i> <span id="serialBtnLabel">展開 Serial 監控繪圖儀</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Code Container -->
+            <div class="flex-1 relative overflow-hidden bg-[#0d1117]">
+                <pre class="h-full overflow-auto p-4 font-mono text-xs text-slate-200 leading-relaxed selection:bg-brand-500 selection:text-white" id="codeEditor"><code>// 載入程式碼中...</code></pre>
+            </div>
+
+            <!-- Bottom Panel: Interactive Serial Monitor & Real-time Plotter -->
+            <div id="serialMonitorContainer" class="h-56 border-t border-mcu-border bg-slate-900 flex flex-col transition-all duration-300">
+                <div class="bg-slate-950 px-4 py-1.5 border-b border-mcu-border flex items-center justify-between text-xs">
+                    <div class="flex items-center gap-2 font-mono text-slate-300">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span>Serial Output Terminal (@ 115200 Baud)</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button id="clearLogBtn" class="text-slate-400 hover:text-slate-200 text-[11px] flex items-center gap-1">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i> 清除 Log
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex-1 grid grid-cols-12 overflow-hidden p-2 gap-2">
+                    <!-- Text Log -->
+                    <div class="col-span-5 bg-black/60 rounded p-2 font-mono text-[11px] text-emerald-400 overflow-y-auto space-y-1 border border-slate-800" id="serialLogs">
+                        <div>[00:00:00.000] -> System Initialized. Serial @ 115200 baud.</div>
+                    </div>
+
+                    <!-- Real-time Plotter Chart -->
+                    <div class="col-span-7 bg-black/40 rounded p-1 border border-slate-800 relative">
+                        <canvas id="serialChart" class="w-full h-full"></canvas>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- JavaScript Logic & Controller Engine -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+
+            // System State
+            const state = {
+                board: 'esp32',
+                preset: 'smarthome',
+                modules: {
+                    led: true,
+                    dht: true,
+                    relay: true,
+                    oled: true,
+                    sonic: false,
+                    buzzer: false,
+                    pot: false,
+                    servo: false
+                },
+                pins: {
+                    led: 2,
+                    dht: 4,
+                    relay: 16,
+                    trig: 5,
+                    echo: 18,
+                    buzzer: 19,
+                    pot: 34,
+                    servo: 13
+                },
+                sim: {
+                    temp: 28.5,
+                    dist: 45,
+                    pot: 2048,
+                    ledOn: false,
+                    relayOn: false,
+                    servoAngle: 90,
+                    buzzerFreq: 0,
+                    audioEnabled: false
+                }
+            };
+
+            // DOM Elements
+            const boardSelect = document.getElementById('boardSelect');
+            const presetSelect = document.getElementById('presetSelect');
+            const tabWiringBtn = document.getElementById('tabWiringBtn');
+            const tabSimBtn = document.getElementById('tabSimBtn');
+            const tabWiringContent = document.getElementById('tabWiringContent');
+            const tabSimContent = document.getElementById('tabSimContent');
+            const codeEditor = document.getElementById('codeEditor');
+            const serialLogs = document.getElementById('serialLogs');
+
+            // Web Audio API for Buzzer Tone
+            let audioCtx = null;
+            let oscillator = null;
+
+            const ctx = document.getElementById('serialChart').getContext('2d');
+            const serialChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '溫度 (°C)',
+                            borderColor: '#f43f5e',
+                            data: [],
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.3
+                        },
+                        {
+                            label: '距離 (cm)',
+                            borderColor: '#38bdf8',
+                            data: [],
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.3
+                        },
+                        {
+                            label: '電位器 (ADC)',
+                            borderColor: '#fb923c',
+                            data: [],
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8', font: { size: 9 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#cbd5e1', font: { size: 10 } } }
+                    }
+                }
+            });
+
+            // Tab switching
+            tabWiringBtn.addEventListener('click', () => {
+                tabWiringBtn.className = "flex-1 py-2.5 text-xs font-semibold text-brand-400 border-b-2 border-brand-500 flex items-center justify-center gap-1.5";
+                tabSimBtn.className = "flex-1 py-2.5 text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5";
+                tabWiringContent.classList.remove('hidden');
+                tabSimContent.classList.add('hidden');
+            });
+
+            tabSimBtn.addEventListener('click', () => {
+                tabSimBtn.className = "flex-1 py-2.5 text-xs font-semibold text-brand-400 border-b-2 border-brand-500 flex items-center justify-center gap-1.5";
+                tabWiringBtn.className = "flex-1 py-2.5 text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5";
+                tabSimContent.classList.remove('hidden');
+                tabWiringContent.classList.add('hidden');
+            });
+
+            // Board Selection Change
+            boardSelect.addEventListener('change', (e) => {
+                state.board = e.target.value;
+                const badge = document.getElementById('boardPinBadge');
+                const desc = document.getElementById('boardDesc');
+                const sda = document.getElementById('pinSdaLabel');
+                const scl = document.getElementById('pinSclLabel');
+
+                if (state.board === 'esp32') {
+                    badge.textContent = "ESP32 (3.3V Logic)";
+                    desc.textContent = "雙核 240MHz 處理器，內建 Wi-Fi / 藍牙，具備豐富 ADC / PWM 與 I2C 針腳。";
+                    sda.textContent = "21"; scl.textContent = "22";
+                } else if (state.board === 'uno') {
+                    badge.textContent = "Arduino Uno (5V Logic)";
+                    desc.textContent = "經典 ATmega328P 微控制器，穩定性極高，適合基礎硬體感知控制。";
+                    sda.textContent = "A4"; scl.textContent = "A5";
+                } else if (state.board === 'pico') {
+                    badge.textContent = "RP2040 Pico (3.3V Logic)";
+                    desc.textContent = "雙核 ARM Cortex-M0+ 133MHz，具備 PIO 可程式化可擴充 I/O 腳位。";
+                    sda.textContent = "GP4"; scl.textContent = "GP5";
+                }
+                generateCode();
+            });
+
+            // Module Toggle Bindings
+            const modIds = ['Led', 'Dht', 'Relay', 'Oled', 'Sonic', 'Buzzer', 'Pot', 'Servo'];
+            modIds.forEach(mod => {
+                const check = document.getElementById(`mod${mod}`);
+                const pinInput = document.getElementById(`pin${mod}`);
+                
+                if (check) {
+                    check.addEventListener('change', (e) => {
+                        state.modules[mod.toLowerCase()] = e.target.checked;
+                        generateCode();
+                    });
+                }
+                if (pinInput) {
+                    pinInput.addEventListener('change', (e) => {
+                        state.pins[mod.toLowerCase()] = parseInt(e.target.value) || 0;
+                        generateCode();
+                    });
+                }
+            });
+
+            presetSelect.addEventListener('change', (e) => {
+                const val = e.target.value;
+                state.preset = val;
+
+                if (val === 'smarthome') {
+                    setModuleState({ led: true, dht: true, relay: true, oled: true, sonic: false, buzzer: false, pot: false, servo: false });
+                } else if (val === 'radar') {
+                    setModuleState({ led: true, dht: false, relay: false, oled: false, sonic: true, buzzer: true, pot: false, servo: false });
+                } else if (val === 'servo') {
+                    setModuleState({ led: false, dht: false, relay: false, oled: false, sonic: false, buzzer: false, pot: true, servo: true });
+                } else if (val === 'timer') {
+                    setModuleState({ led: true, dht: true, relay: false, oled: false, sonic: false, buzzer: false, pot: false, servo: false });
+                }
+                generateCode();
+            });
+
+            function setModuleState(mods) {
+                Object.keys(mods).forEach(m => {
+                    state.modules[m] = mods[m];
+                    const chk = document.getElementById(`mod${m.charAt(0).toUpperCase() + m.slice(1)}`);
+                    if (chk) chk.checked = mods[m];
+                });
+            }
+
+            function generateCode() {
+                const b = state.board;
+                const m = state.modules;
+                const p = state.pins;
+
+                let code = `/**\n * @file firmware.ino\n * @brief 微控制器控制程式 (Microcontroller Firmware)\n * @board ${state.board.toUpperCase()}\n * @generated Studio Generator\n */\n\n`;
+
+                // Header Includes
+                code += `// --- 函式庫引用 (Libraries) ---\n`;
+                if (b === 'esp32') {
+                    code += `#include <WiFi.h>\n`;
+                }
+                if (m.dht) {
+                    code += `#include <DHT.h>\n`;
+                }
+                if (m.oled) {
+                    code += `#include <Wire.h>\n`;
+                    code += `#include <Adafruit_GFX.h>\n`;
+                    code += `#include <Adafruit_SSD1306.h>\n`;
+                }
+                if (m.servo) {
+                    code += (b === 'esp32') ? `#include <ESP32Servo.h>\n` : `#include <Servo.h>\n`;
+                }
+
+                code += `\n// --- 腳位與硬體定義 (Pin Definitions) ---\n`;
+                if (m.led) code += `#define PIN_LED      ${p.led}   // LED 指示燈針腳\n`;
+                if (m.dht) {
+                    code += `#define PIN_DHT      ${p.dht}   // DHT22 資料針腳\n`;
+                    code += `#define DHTTYPE      DHT22 // DHT 22 (AM2302)\n`;
+                }
+                if (m.relay) code += `#define PIN_RELAY    ${p.relay}  // 繼電器控制針腳\n`;
+                if (m.sonic) {
+                    code += `#define PIN_TRIG     ${document.getElementById('pinTrig').value}   // 超聲波 Trigger 針腳\n`;
+                    code += `#define PIN_ECHO     ${document.getElementById('pinEcho').value}  // 超聲波 Echo 針腳\n`;
+                }
+                if (m.buzzer) code += `#define PIN_BUZZER   ${p.buzzer}  // 蜂鳴器 PWM 針腳\n`;
+                if (m.pot) code += `#define PIN_POT      ${p.pot}  // 電位器 ADC 針腳\n`;
+                if (m.servo) code += `#define PIN_SERVO    ${p.servo}  // 伺服馬達 PWM 針腳\n`;
+
+                code += `\n// --- 全域變數與實體初始化 (Globals) ---\n`;
+                if (m.dht) code += `DHT dht(PIN_DHT, DHTTYPE);\n`;
+                if (m.oled) code += `Adafruit_SSD1306 display(128, 64, &Wire, -1);\n`;
+                if (m.servo) code += `Servo myServo;\n`;
+
+                code += `unsigned long lastSensorRead = 0;\n`;
+                code += `const unsigned long SENSOR_INTERVAL = 1000; // 非阻塞讀取間隔 (1000ms)\n`;
+
+                // Setup Function
+                code += `\nvoid setup() {\n`;
+                code += `  Serial.begin(115200);\n`;
+                code += `  while (!Serial && millis() < 3000); // 等待串口開啟\n`;
+                code += `  Serial.println(F("[SYSTEM] 微控制器初始化完成..."));\n\n`;
+
+                if (m.led) code += `  pinMode(PIN_LED, OUTPUT);\n`;
+                if (m.relay) {
+                    code += `  pinMode(PIN_RELAY, OUTPUT);\n`;
+                    code += `  digitalWrite(PIN_RELAY, LOW); // 預設關閉繼電器\n`;
+                }
+                if (m.sonic) {
+                    code += `  pinMode(PIN_TRIG, OUTPUT);\n`;
+                    code += `  pinMode(PIN_ECHO, INPUT);\n`;
+                }
+                if (m.buzzer) code += `  pinMode(PIN_BUZZER, OUTPUT);\n`;
+                if (m.dht) code += `  dht.begin();\n`;
+
+                if (m.oled) {
+                    code += `  // 初始化 OLED 顯示屏 (I2C 位址 0x3C)\n`;
+                    code += `  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {\n`;
+                    code += `    Serial.println(F("[ERROR] OLED 初始化失敗！"));\n`;
+                    code += `  } else {\n`;
+                    code += `    display.clearDisplay();\n`;
+                    code += `    display.setTextSize(1);\n`;
+                    code += `    display.setTextColor(SSD1306_WHITE);\n`;
+                    code += `    display.setCursor(0,0);\n`;
+                    code += `    display.println("MCU System Ready");\n`;
+                    code += `    display.display();\n`;
+                    code += `  }\n`;
+                }
+
+                if (m.servo) {
+                    code += `  myServo.attach(PIN_SERVO);\n`;
+                    code += `  myServo.write(90); // 歸位至 90 度\n`;
+                }
+
+                code += `}\n`;
+
+                // Loop Function
+                code += `\nvoid loop() {\n`;
+                code += `  unsigned long currentMillis = millis();\n\n`;
+                code += `  // 使用 millis() 實現非阻塞計時器 (Non-blocking loop)\n`;
+                code += `  if (currentMillis - lastSensorRead >= SENSOR_INTERVAL) {\n`;
+                code += `    lastSensorRead = currentMillis;\n\n`;
+
+                if (m.dht) {
+                    code += `    // 1. 讀取 DHT22 溫濕度\n`;
+                    code += `    float temp = dht.readTemperature();\n`;
+                    code += `    float hum = dht.readHumidity();\n`;
+                    code += `    if (!isnan(temp) && !isnan(hum)) {\n`;
+                    code += `      Serial.print("TEMP:"); Serial.print(temp); Serial.print("C, ");\n`;
+                    code += `      Serial.print("HUM:"); Serial.print(hum); Serial.println("%");\n`;
+                    
+                    if (m.relay) {
+                        code += `      // 溫控邏輯：高於 30度 時啟動繼電器風扇\n`;
+                        code += `      if (temp > 30.0) {\n`;
+                        code += `        digitalWrite(PIN_RELAY, HIGH);\n`;
+                        if (m.led) code += `        digitalWrite(PIN_LED, HIGH);\n`;
+                        code += `      } else {\n`;
+                        code += `        digitalWrite(PIN_RELAY, LOW);\n`;
+                        if (m.led) code += `        digitalWrite(PIN_LED, LOW);\n`;
+                        code += `      }\n`;
+                    }
+                    code += `    }\n\n`;
+                }
+
+                if (m.sonic) {
+                    code += `    // 2. 超聲波觸發與微秒測距\n`;
+                    code += `    digitalWrite(PIN_TRIG, LOW);\n`;
+                    code += `    delayMicroseconds(2);\n`;
+                    code += `    digitalWrite(PIN_TRIG, HIGH);\n`;
+                    code += `    delayMicroseconds(10);\n`;
+                    code += `    digitalWrite(PIN_TRIG, LOW);\n`;
+                    code += `    long duration = pulseIn(PIN_ECHO, HIGH);\n`;
+                    code += `    float distanceCm = duration * 0.0343 / 2.0;\n`;
+                    code += `    Serial.print("DIST:"); Serial.print(distanceCm); Serial.println("cm");\n`;
+
+                    if (m.buzzer) {
+                        code += `    // 倒車警報：小於 15cm 時發出高頻聲響\n`;
+                        code += `    if (distanceCm < 15.0) {\n`;
+                        code += `      tone(PIN_BUZZER, 1000, 200);\n`;
+                        code += `    } else {\n`;
+                        code += `      noTone(PIN_BUZZER);\n`;
+                        code += `    }\n`;
+                    }
+                    code += `\n`;
+                }
+
+                if (m.pot) {
+                    code += `    // 3. 讀取 ADC 電位器值\n`;
+                    code += `    int rawAdc = analogRead(PIN_POT);\n`;
+                    code += `    Serial.print("ADC:"); Serial.println(rawAdc);\n`;
+
+                    if (m.servo) {
+                        code += `    // 將 ADC (0-4095) 映射至 馬達角度 (0-180)\n`;
+                        code += `    int angle = map(rawAdc, 0, 4095, 0, 180);\n`;
+                        code += `    myServo.write(angle);\n`;
+                    }
+                    code += `\n`;
+                }
+
+                if (m.oled) {
+                    code += `    // 4. 更新 OLED 畫面數據\n`;
+                    code += `    display.clearDisplay();\n`;
+                    code += `    display.setCursor(0, 0);\n`;
+                    code += `    display.println("--- MCU STATUS ---");\n`;
+                    if (m.dht) {
+                        code += `    display.print("Temp: "); display.print(dht.readTemperature()); display.println(" C");\n`;
+                    }
+                    if (m.sonic) {
+                        code += `    display.print("Dist: "); display.print(distanceCm); display.println(" cm");\n`;
+                    }
+                    if (m.relay) {
+                        code += `    display.print("Relay: "); display.println(digitalRead(PIN_RELAY) ? "ON" : "OFF");\n`;
+                    }
+                    code += `    display.display();\n`;
+                }
+
+                code += `  }\n`;
+                code += `}\n`;
+
+                codeEditor.textContent = code;
+            }
+
+            // Slider Listeners
+            const sliderTemp = document.getElementById('sliderTemp');
+            const sliderDist = document.getElementById('sliderDist');
+            const sliderPot = document.getElementById('sliderPot');
+
+            sliderTemp.addEventListener('input', (e) => {
+                state.sim.temp = parseFloat(e.target.value);
+                document.getElementById('simTempVal').textContent = `${state.sim.temp.toFixed(1)} °C`;
+                updateSimulation();
+            });
+
+            sliderDist.addEventListener('input', (e) => {
+                state.sim.dist = parseInt(e.target.value);
+                document.getElementById('simDistVal').textContent = `${state.sim.dist} cm`;
+                updateSimulation();
+            });
+
+            sliderPot.addEventListener('input', (e) => {
+                state.sim.pot = parseInt(e.target.value);
+                const volts = (state.sim.pot * 3.3 / 4095).toFixed(2);
+                document.getElementById('simPotVal').textContent = `${state.sim.pot} (${volts}V)`;
+                updateSimulation();
+            });
+
+            // Audio Toggle
+            const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+            toggleAudioBtn.addEventListener('click', () => {
+                state.sim.audioEnabled = !state.sim.audioEnabled;
+                if (state.sim.audioEnabled) {
+                    toggleAudioBtn.textContent = "關閉音效";
+                    toggleAudioBtn.className = "px-2.5 py-1 bg-amber-500 text-slate-900 font-bold text-xs rounded";
+                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                } else {
+                    toggleAudioBtn.textContent = "開啟音效";
+                    toggleAudioBtn.className = "px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 rounded border border-amber-500/30";
+                    stopBuzzerTone();
+                }
+            });
+
+            function playBuzzerTone(freq) {
+                if (!state.sim.audioEnabled || !audioCtx) return;
+                if (!oscillator) {
+                    oscillator = audioCtx.createOscillator();
+                    oscillator.type = 'square';
+                    oscillator.connect(audioCtx.destination);
+                    oscillator.start();
+                }
+                oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            }
+
+            function stopBuzzerTone() {
+                if (oscillator) {
+                    oscillator.stop();
+                    oscillator.disconnect();
+                    oscillator = null;
+                }
+            }
+
+            function updateSimulation() {
+                // Rule 1: High temp > 30C triggers Relay and LED
+                if (state.modules.dht && state.modules.relay) {
+                    state.sim.relayOn = state.sim.temp > 30.0;
+                    state.sim.ledOn = state.sim.relayOn;
+                }
+
+                // Rule 2: Low distance < 15cm triggers Buzzer
+                if (state.modules.sonic && state.modules.buzzer) {
+                    if (state.sim.dist < 15) {
+                        playBuzzerTone(1000);
+                    } else {
+                        stopBuzzerTone();
+                    }
+                }
+
+                // Rule 3: Potentiometer controls Servo Angle
+                if (state.modules.pot && state.modules.servo) {
+                    state.sim.servoAngle = Math.round((state.sim.pot / 4095) * 180);
+                }
+
+                // Update UI Visuals
+                const ledBulb = document.getElementById('ledBulb');
+                const ledText = document.getElementById('ledStateText');
+                if (state.sim.ledOn) {
+                    ledBulb.className = "w-7 h-7 rounded-full bg-rose-500 border border-rose-300 glow-led flex items-center justify-center text-white";
+                    ledText.textContent = "ON (HIGH / 3.3V)";
+                    ledText.className = "text-[10px] text-rose-400 font-mono font-bold";
+                } else {
+                    ledBulb.className = "w-7 h-7 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-slate-400";
+                    ledText.textContent = "OFF (LOW / 0V)";
+                    ledText.className = "text-[10px] text-slate-500 font-mono";
+                }
+
+                const relaySwitch = document.getElementById('relaySwitch');
+                const relayText = document.getElementById('relayStateText');
+                if (state.sim.relayOn) {
+                    relaySwitch.className = "w-7 h-7 rounded-md bg-emerald-500 border border-emerald-300 text-slate-900 flex items-center justify-center font-bold";
+                    relayText.textContent = "CLOSED (ACTIVE)";
+                    relayText.className = "text-[10px] text-emerald-400 font-mono font-bold";
+                } else {
+                    relaySwitch.className = "w-7 h-7 rounded-md bg-slate-800 border border-slate-700 text-slate-500 flex items-center justify-center";
+                    relayText.textContent = "OPEN (IDLE)";
+                    relayText.className = "text-[10px] text-slate-500 font-mono";
+                }
+
+                // Servo Needle Angle
+                const needle = document.getElementById('servoNeedle');
+                const label = document.getElementById('servoAngleLabel');
+                const deg = state.sim.servoAngle - 90; // Convert 0..180 to -90..90
+                needle.style.transform = `rotate(${deg}deg)`;
+                label.textContent = `${state.sim.servoAngle}°`;
+
+                // Render OLED
+                renderOledDisplay();
+            }
+
+            function renderOledDisplay() {
+                const canvas = document.getElementById('oledCanvas');
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, 128, 64);
+
+                if (!state.modules.oled) return;
+
+                ctx.fillStyle = '#00f0ff';
+                ctx.font = '9px "Fira Code", monospace';
+                ctx.fillText('MCU STUDIO OLED v2', 4, 12);
+
+                ctx.strokeStyle = '#00f0ff';
+                ctx.beginPath();
+                ctx.moveTo(4, 16); ctx.lineTo(124, 16);
+                ctx.stroke();
+
+                ctx.fillStyle = '#ffffff';
+                let y = 28;
+                if (state.modules.dht) {
+                    ctx.fillText(`TEMP: ${state.sim.temp.toFixed(1)} C`, 4, y);
+                    y += 12;
+                }
+                if (state.modules.sonic) {
+                    ctx.fillText(`DIST: ${state.sim.dist} cm`, 4, y);
+                    y += 12;
+                }
+                if (state.modules.pot) {
+                    ctx.fillText(`ADC:  ${state.sim.pot}`, 4, y);
+                }
+            }
+
+            // Periodic Serial Logging & Plotter Loop (Every 1 second)
+            setInterval(() => {
+                const timeStr = new Date().toISOString().substring(11, 23);
+                let logMsg = `[${timeStr}] `;
+
+                if (state.modules.dht) logMsg += `TEMP:${state.sim.temp.toFixed(1)}C `;
+                if (state.modules.sonic) logMsg += `DIST:${state.sim.dist}cm `;
+                if (state.modules.pot) logMsg += `ADC:${state.sim.pot} `;
+                if (state.modules.relay) logMsg += `RELAY:${state.sim.relayOn ? 1 : 0}`;
+
+                const div = document.createElement('div');
+                div.textContent = logMsg;
+                serialLogs.appendChild(div);
+                serialLogs.scrollTop = serialLogs.scrollHeight;
+
+                // Keep log light
+                if (serialLogs.children.length > 50) {
+                    serialLogs.removeChild(serialLogs.firstChild);
+                }
+
+                // Update Serial Plotter Chart
+                const now = new Date().toLocaleTimeString().split(' ')[0];
+                serialChart.data.labels.push(now);
+                serialChart.data.datasets[0].data.push(state.sim.temp);
+                serialChart.data.datasets[1].data.push(state.sim.dist);
+                serialChart.data.datasets[2].data.push(state.sim.pot / 40); // scale for visual view
+
+                if (serialChart.data.labels.length > 15) {
+                    serialChart.data.labels.shift();
+                    serialChart.data.datasets.forEach(d => d.data.shift());
+                }
+                serialChart.update();
+
+            }, 1000);
+
+            // Copy Code Button
+            document.getElementById('copyCodeBtn').addEventListener('click', () => {
+                navigator.clipboard.writeText(codeEditor.textContent).then(() => {
+                    const btn = document.getElementById('copyCodeBtn');
+                    btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> 已複製！`;
+                    setTimeout(() => {
+                        btn.innerHTML = `<i data-lucide="copy" class="w-3.5 h-3.5"></i> 複製程式碼`;
+                        lucide.createIcons();
+                    }, 2000);
+                });
+            });
+
+            // Download .ino File
+            document.getElementById('downloadCodeBtn').addEventListener('click', () => {
+                const blob = new Blob([codeEditor.textContent], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `firmware_${state.board}.ino`;
+                a.click();
+            });
+
+            // Clear Log
+            document.getElementById('clearLogBtn').addEventListener('click', () => {
+                serialLogs.innerHTML = '';
+            });
+
+            // Toggle Serial View
+            let serialOpen = true;
+            document.getElementById('toggleSerialBtn').addEventListener('click', () => {
+                const container = document.getElementById('serialMonitorContainer');
+                const label = document.getElementById('serialBtnLabel');
+                serialOpen = !serialOpen;
+                if (serialOpen) {
+                    container.classList.remove('h-8');
+                    container.classList.add('h-56');
+                    label.textContent = "收折 Serial 監控繪圖儀";
+                } else {
+                    container.classList.remove('h-56');
+                    container.classList.add('h-8');
+                    label.textContent = "展開 Serial 監控繪圖儀";
+                }
+            });
+
+            // Initial Execution
+            generateCode();
+            updateSimulation();
+        });
+    </script>
+</body>
+</html>
