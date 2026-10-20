@@ -74,6 +74,11 @@
                     </select>
                 </div>
 
+                <!-- 藍牙連線按鈕 (新增) -->
+                <button onclick="connectBLE()" class="px-3 py-2 text-xs font-medium bg-sky-500/10 text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 rounded-lg transition-colors flex items-center gap-1.5">
+                    <i class="fa-brands fa-bluetooth-b"></i> <span id="bleBtnText">連線 ESP32</span>
+                </button>
+
                 <!-- Simulation Control Modal Trigger -->
                 <button onclick="toggleModal('simModal')" class="px-3 py-2 text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 rounded-lg transition-colors flex items-center gap-1.5">
                     <i class="fa-solid fa-bolt"></i> 測試模擬事件
@@ -469,7 +474,62 @@
     <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <script>
+        // =======================
+        // BLE 藍牙控制變數 (參考 app.js)
+        // =======================
+        const SERVICE = "12345678-1234-1234-1234-000000000001";
+        const COMMAND = "12345678-1234-1234-1234-000000000030";
+
+        let bleDevice = null;
+        let bleServer = null;
+        let commandChar = null;
+
+        // 連線 ESP32
+        async function connectBLE() {
+            try {
+                showToast("狀態：搜尋藍牙裝置中...", "info");
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: "ESP32_Sprinkler" }],
+                    optionalServices: [SERVICE]
+                });
+
+                bleServer = await bleDevice.gatt.connect();
+                let service = await bleServer.getPrimaryService(SERVICE);
+                
+                // 取得指令特徵值
+                commandChar = await service.getCharacteristic(COMMAND);
+                
+                document.getElementById("bleBtnText").innerText = "已連線 ESP32";
+                showToast("✅ 狀態：ESP32 已成功連線就緒", "info");
+
+                bleDevice.addEventListener("gattserverdisconnected", () => {
+                    document.getElementById("bleBtnText").innerText = "連線 ESP32";
+                    commandChar = null; bleServer = null;
+                    showToast("❌ 狀態：ESP32 已斷線", "danger");
+                });
+
+            } catch(e) {
+                console.error(e);
+                showToast("藍牙連線失敗：" + e.message, "danger");
+            }
+        }
+
+        // 發送指令至 ESP32
+        async function sendCmd(cmdStr) {
+            if(!commandChar) { 
+                console.log("未連線 ESP32，僅執行網頁模擬。指令: " + cmdStr); 
+                return; 
+            }
+            try {
+                await commandChar.writeValue(new TextEncoder().encode(cmdStr));
+            } catch (error) {
+                console.error("發送指令失敗:", error);
+            }
+        }
+
+        // =======================
         // System State Management
+        // =======================
         const state = {
             site: 'siteA',
             autoSprinkler: true,
@@ -721,7 +781,7 @@
             }
         }
 
-        // Sprinkler Control Function
+        // 整合了藍牙發送指令的 Sprinkler Control Function
         function activateSprinkler(enable, reason = "") {
             state.sprinklerActive = enable;
             const dot = document.getElementById('sprinklerDot');
@@ -737,6 +797,9 @@
                 btn.innerHTML = `<i class="fa-solid fa-stop"></i> 手動停止噴霧`;
                 overlay.classList.remove('hidden');
                 showToast(`💧 灑水降塵系統已啟動 (${reason})`, 'info');
+                
+                // 發送藍牙開啟指令
+                sendCmd("SPRINKLER:ON");
             } else {
                 dot.className = "w-3.5 h-3.5 rounded-full bg-slate-600";
                 text.className = "text-base font-bold text-slate-300";
@@ -744,6 +807,9 @@
                 btn.className = "px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors w-full flex items-center justify-center gap-1";
                 btn.innerHTML = `<i class="fa-solid fa-power-off text-xs"></i> 手動開啟噴霧`;
                 overlay.classList.add('hidden');
+
+                // 發送藍牙關閉指令
+                sendCmd("SPRINKLER:OFF");
             }
         }
 
